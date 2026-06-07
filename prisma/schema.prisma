@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  phone        String       @unique
+  name         String
+  passwordHash String       @map("password_hash")
+  isAdmin      Boolean      @default(false) @map("is_admin")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  predictions  Prediction[]
+  ownedPools   Pool[]       @relation("PoolOwner")
+  poolMembers  PoolMember[]
+
+  @@map("users")
+}
+
+model Pool {
+  id          String       @id @default(cuid())
+  name        String
+  code        String       @unique
+  ownerId     String       @map("owner_id")
+  owner       User         @relation("PoolOwner", fields: [ownerId], references: [id])
+  createdAt   DateTime     @default(now()) @map("created_at")
+  members     PoolMember[]
+  predictions Prediction[]
+
+  @@map("pools")
+}
+
+model PoolMember {
+  id       String @id @default(cuid())
+  poolId   String @map("pool_id")
+  pool     Pool   @relation(fields: [poolId], references: [id])
+  userId   String @map("user_id")
+  user     User   @relation(fields: [userId], references: [id])
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  @@unique([poolId, userId])
+  @@map("pool_members")
+}
+
+model Game {
+  id          String       @id @default(cuid())
+  number      Int          @unique
+  group       String
+  matchDate   DateTime     @map("match_date")
+  team1       String
+  team2       String
+  score1      Int?
+  score2      Int?
+  resultFetched Boolean   @default(false) @map("result_fetched")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  predictions Prediction[]
+
+  @@map("games")
+}
+
+model Prediction {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id])
+  poolId    String   @map("pool_id")
+  pool      Pool     @relation(fields: [poolId], references: [id])
+  gameId    String   @map("game_id")
+  game      Game     @relation(fields: [gameId], references: [id])
+  score1    Int
+  score2    Int
+  points    Int?
+  isLocked  Boolean  @default(false) @map("is_locked")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, poolId, gameId])
+  @@map("predictions")
+}
