@@ -14,6 +14,14 @@ const loginSchema = z.object({
 })
 
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get('/check-phone', async (request, reply) => {
+    const { phone } = request.query as { phone?: string }
+    if (!phone) return reply.status(400).send({ error: 'Telefone obrigatório' })
+    const cleanPhone = phone.replace(/\D/g, '')
+    const user = await fastify.prisma.user.findUnique({ where: { phone: cleanPhone } })
+    return { exists: !!user }
+  })
+
   fastify.post('/register', async (request, reply) => {
     const body = registerSchema.safeParse(request.body)
     if (!body.success) {

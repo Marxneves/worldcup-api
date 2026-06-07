@@ -12,6 +12,8 @@ import { scheduleScraper } from './services/scraper.service'
 const app = Fastify({ logger: process.env.NODE_ENV !== 'production' })
 
 async function start() {
+  const isDev = process.env.NODE_ENV !== 'production'
+
   const allowedOrigins = [
     process.env.FRONTEND_URL,
     'http://localhost:5173',
@@ -20,7 +22,7 @@ async function start() {
 
   await app.register(cors, {
     origin: (origin, cb) => {
-      if (!origin || allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+      if (isDev || !origin || allowedOrigins.some(allowed => origin.startsWith(allowed))) {
         cb(null, true)
       } else {
         cb(new Error(`CORS: origin ${origin} not allowed`), false)
