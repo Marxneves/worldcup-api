@@ -90,6 +90,25 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
+  fastify.delete('/:code/leave', { preHandler: requireAuth }, async (request, reply) => {
+    const { code } = request.params as { code: string }
+    const user = request.user as { id: string }
+
+    const pool = await fastify.prisma.pool.findUnique({ where: { code: code.toUpperCase() } })
+    if (!pool) return reply.status(404).send({ error: 'Bolão não encontrado' })
+
+    const membership = await fastify.prisma.poolMember.findUnique({
+      where: { poolId_userId: { poolId: pool.id, userId: user.id } },
+    })
+    if (!membership) return reply.status(404).send({ error: 'Você não faz parte deste bolão' })
+
+    await fastify.prisma.poolMember.delete({
+      where: { poolId_userId: { poolId: pool.id, userId: user.id } },
+    })
+
+    return { message: 'Saiu do bolão com sucesso' }
+  })
+
   fastify.get('/:code/ranking', { preHandler: requireAuth }, async (request, reply) => {
     const { code } = request.params as { code: string }
     const pool = await fastify.prisma.pool.findUnique({ where: { code: code.toUpperCase() } })
