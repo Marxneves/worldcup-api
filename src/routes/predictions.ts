@@ -125,6 +125,14 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
     })
     if (!isMember) return reply.status(403).send({ error: 'Sem acesso a esse bolão' })
 
+    const totalGames = await fastify.prisma.game.count()
+    const requesterLockedCount = await fastify.prisma.prediction.count({
+      where: { userId: requester.id, poolId, isLocked: true },
+    })
+    if (requesterLockedCount < totalGames) {
+      return reply.status(403).send({ error: 'Confirme seus palpites antes de ver os de outros participantes' })
+    }
+
     const allPredictions = await fastify.prisma.prediction.findMany({
       where: { userId, poolId },
       select: { isLocked: true },
