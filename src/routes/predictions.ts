@@ -72,6 +72,10 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
       })
     }
 
+    await fastify.prisma.prediction.deleteMany({
+      where: { userId: user.id, poolId, game: { matchDate: { lte: now } } },
+    })
+
     await fastify.prisma.prediction.updateMany({
       where: { userId: user.id, poolId },
       data: { isLocked: true },
