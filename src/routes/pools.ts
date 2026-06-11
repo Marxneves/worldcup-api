@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { requireAuth } from '../middleware/auth.middleware'
+import { requireAuth, requireAdmin } from '../middleware/auth.middleware'
 
 function generateCode(): string {
   return Math.random().toString(36).substring(2, 8).toUpperCase()
@@ -148,5 +148,126 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
     })
 
     return { poolName: pool.name, rankings }
+  })
+
+  fastify.get('/:code/daily-summary', { preHandler: requireAdmin }, async (request, reply) => {
+    const { code } = request.params as { code: string }
+    const { date } = request.query as { date?: string }
+
+    const pool = await fastify.prisma.pool.findUnique({ where: { code: code.toUpperCase() } })
+    if (!pool) return reply.status(404).send({ error: 'Bolão não encontrado' })
+
+    // BRT = UTC-3: midnight BRT = 03:00 UTC
+    const brtDate = date ?? new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const startUTC = new Date(`${brtDate}T03:00:00Z`)
+    const endUTC = new Date(startUTC.getTime() + 24 * 60 * 60 * 1000)
+
+    const gamesOnDate = await fastify.prisma.game.findMany({
+      where: {
+        matchDate: { gte: startUTC, lt: endUTC },
+        score1: { not: null },
+        score2: { not: null },
+      },
+      orderBy: { number: 'asc' },
+    })
+
+    const members = await fastify.prisma.poolMember.findMany({
+      where: { poolId: pool.id },
+      include: { user: true },
+    })
+
+    const gameIds = gamesOnDate.map(g => g.id)
+
+    const gameSummaries = await Promise.all(
+      gamesOnDate.map(async (game) => {
+        const predictions = await fastify.prisma.prediction.findMany({
+          where: { poolId: pool.id, gameId: game.id, isLocked: true },
+          include: { user: true },
+        })
+
+        const memberPredictions = members.map(member => {
+          const prediction = predictions.find(p => p.userId === member.userId)
+          return {
+            userId: member.userId,
+            name: member.user.name,
+            score1: prediction?.score1 ?? null,
+            score2: prediction?.score2 ?? null,
+            points: prediction?.points ?? 0,
+          }
+        })
+
+        memberPredictions.sort((a, b) => b.points - a.points)
+
+        return {
+          number: game.number,
+          team1: game.team1,
+          team2: game.team2,
+          score1: game.score1,
+          score2: game.score2,
+          matchDate: game.matchDate,
+          predictions: memberPredictions,
+        }
+      })
+    )
+
+    const allRankings = await Promise.all(
+      members.map(async (member) => {
+        const allPredictions = await fastify.prisma.prediction.findMany({
+          where: { userId: member.userId, poolId: pool.id, isLocked: true },
+        })
+
+        const totalPoints = allPredictions.reduce((sum, p) => sum + (p.points ?? 0), 0)
+        const exactScores = allPredictions.filter(p => p.points === 3).length
+
+        const todayPredictions = allPredictions.filter(p => gameIds.includes(p.gameId))
+        const todayPoints = todayPredictions.reduce((sum, p) => sum + (p.points ?? 0), 0)
+        const previousPoints = totalPoints - todayPoints
+        const previousExact = exactScores - todayPredictions.filter(p => p.points === 3).length
+
+        return {
+          userId: member.userId,
+          name: member.user.name,
+          totalPoints,
+          exactScores,
+          todayPoints,
+          previousPoints,
+          previousExact,
+        }
+      })
+    )
+
+    const sortedCurrent = [...allRankings].sort((a, b) => {
+      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints
+      return b.exactScores - a.exactScores
+    })
+
+    const sortedPrevious = [...allRankings].sort((a, b) => {
+      if (b.previousPoints !== a.previousPoints) return b.previousPoints - a.previousPoints
+      return b.previousExact - a.previousExact
+    })
+
+    const previousPositionMap = new Map(sortedPrevious.map((r, i) => [r.userId, i + 1]))
+
+    const currentRanking = sortedCurrent.map((member, index) => {
+      const currentPosition = index + 1
+      const previousPosition = previousPositionMap.get(member.userId) ?? currentPosition
+      return {
+        position: currentPosition,
+        previousPosition,
+        movement: previousPosition - currentPosition,
+        userId: member.userId,
+        name: member.name,
+        totalPoints: member.totalPoints,
+        todayPoints: member.todayPoints,
+        exactScores: member.exactScores,
+      }
+    })
+
+    return {
+      date: brtDate,
+      poolName: pool.name,
+      games: gameSummaries,
+      ranking: currentRanking,
+    }
   })
 }
