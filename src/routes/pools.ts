@@ -152,7 +152,8 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/:code/daily-summary', { preHandler: requireAdmin }, async (request, reply) => {
     const { code } = request.params as { code: string }
-    const { date } = request.query as { date?: string }
+    const { date, upToGame } = request.query as { date?: string; upToGame?: string }
+    const upToGameNumber = upToGame ? parseInt(upToGame, 10) : null
 
     const pool = await fastify.prisma.pool.findUnique({ where: { code: code.toUpperCase() } })
     if (!pool) return reply.status(404).send({ error: 'Bolão não encontrado' })
@@ -171,15 +172,18 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
       orderBy: { number: 'asc' },
     })
 
+    // When filtering by a specific game, show only that game's card
+    const visibleGames = upToGameNumber !== null
+      ? gamesOnDate.filter(g => g.number === upToGameNumber)
+      : gamesOnDate
+
     const members = await fastify.prisma.poolMember.findMany({
       where: { poolId: pool.id },
       include: { user: true },
     })
 
-    const gameIds = gamesOnDate.map(g => g.id)
-
     const gameSummaries = await Promise.all(
-      gamesOnDate.map(async (game) => {
+      visibleGames.map(async (game) => {
         const predictions = await fastify.prisma.prediction.findMany({
           where: { poolId: pool.id, gameId: game.id, isLocked: true },
           include: { user: true },
@@ -210,26 +214,41 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
       })
     )
 
+    // Ranking always scoped to a specific ceiling game:
+    // - explicit upToGame param → that game number
+    // - "Todos" (no param) → last game number of the selected day
+    const rankingCeiling = upToGameNumber ?? (gamesOnDate.length > 0 ? Math.max(...gamesOnDate.map(g => g.number)) : null)
+    const gamesForRanking = rankingCeiling !== null
+      ? await fastify.prisma.game.findMany({ where: { number: { lte: rankingCeiling }, score1: { not: null } } })
+      : []
+
+    const rankingGameIds = gamesForRanking.map(g => g.id)
+    // Points from only the "scope" game(s) — single game when upToGame set, else all games of the day
+    const scopeGamesIds = upToGameNumber !== null
+      ? gamesForRanking.filter(g => g.number === upToGameNumber).map(g => g.id)
+      : gamesOnDate.map(g => g.id)
+
     const allRankings = await Promise.all(
       members.map(async (member) => {
-        const allPredictions = await fastify.prisma.prediction.findMany({
-          where: { userId: member.userId, poolId: pool.id, isLocked: true },
+        const predictions = await fastify.prisma.prediction.findMany({
+          where: { userId: member.userId, poolId: pool.id, isLocked: true, gameId: { in: rankingGameIds } },
         })
 
-        const totalPoints = allPredictions.reduce((sum, p) => sum + (p.points ?? 0), 0)
-        const exactScores = allPredictions.filter(p => p.points === 3).length
+        const totalPoints = predictions.reduce((sum, p) => sum + (p.points ?? 0), 0)
+        const exactScores = predictions.filter(p => p.points === 3).length
 
-        const todayPredictions = allPredictions.filter(p => gameIds.includes(p.gameId))
-        const todayPoints = todayPredictions.reduce((sum, p) => sum + (p.points ?? 0), 0)
-        const previousPoints = totalPoints - todayPoints
-        const previousExact = exactScores - todayPredictions.filter(p => p.points === 3).length
+        const scopePredictions = predictions.filter(p => scopeGamesIds.includes(p.gameId))
+        const scopePoints = scopePredictions.reduce((sum, p) => sum + (p.points ?? 0), 0)
+
+        const previousPoints = totalPoints - scopePoints
+        const previousExact = exactScores - scopePredictions.filter(p => p.points === 3).length
 
         return {
           userId: member.userId,
           name: member.user.name,
           totalPoints,
           exactScores,
-          todayPoints,
+          todayPoints: scopePoints,
           previousPoints,
           previousExact,
         }
