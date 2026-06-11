@@ -27,6 +27,10 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
     const game = await fastify.prisma.game.findUnique({ where: { id: gameId } })
     if (!game) return reply.status(404).send({ error: 'Jogo não encontrado' })
 
+    if (new Date(game.matchDate) <= new Date()) {
+      return reply.status(400).send({ error: 'Este jogo já foi iniciado e não pode mais ser alterado' })
+    }
+
     const existing = await fastify.prisma.prediction.findUnique({
       where: { userId_poolId_gameId: { userId: user.id, poolId, gameId } },
     })
@@ -55,13 +59,22 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
     })
     if (!isMember) return reply.status(403).send({ error: 'Você não faz parte desse bolão' })
 
-    const total = await fastify.prisma.game.count()
-    const filled = await fastify.prisma.prediction.count({
-      where: { userId: user.id, poolId },
+    const now = new Date()
+    const openGamesCount = await fastify.prisma.game.count({
+      where: { matchDate: { gt: now } },
     })
-    if (filled < total) {
-      return reply.status(400).send({ error: `Preencha todos os ${total} jogos antes de confirmar` })
+    const filledOpenCount = await fastify.prisma.prediction.count({
+      where: { userId: user.id, poolId, game: { matchDate: { gt: now } } },
+    })
+    if (filledOpenCount < openGamesCount) {
+      return reply.status(400).send({
+        error: `Preencha todos os ${openGamesCount} jogos disponíveis antes de confirmar`,
+      })
     }
+
+    await fastify.prisma.prediction.deleteMany({
+      where: { userId: user.id, poolId, game: { matchDate: { lte: now } } },
+    })
 
     await fastify.prisma.prediction.updateMany({
       where: { userId: user.id, poolId },
