@@ -6,6 +6,16 @@ function generateCode(): string {
   return Math.random().toString(36).substring(2, 8).toUpperCase()
 }
 
+function standardRanking<T>(sorted: T[], areTied: (a: T, b: T) => boolean): Array<T & { position: number }> {
+  const positions: number[] = []
+  for (let i = 0; i < sorted.length; i++) {
+    if (i === 0) positions.push(1)
+    else if (areTied(sorted[i], sorted[i - 1])) positions.push(positions[i - 1])
+    else positions.push(i + 1)
+  }
+  return sorted.map((item, i) => ({ ...item, position: positions[i] }))
+}
+
 export const poolRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/', { preHandler: requireAuth }, async (request, reply) => {
     const schema = z.object({ name: z.string().min(2) })
@@ -147,7 +157,12 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
       return b.exactScores - a.exactScores
     })
 
-    return { poolName: pool.name, rankings }
+    const rankedEntries = standardRanking(
+      rankings,
+      (a, b) => a.totalPoints === b.totalPoints && a.exactScores === b.exactScores
+    )
+
+    return { poolName: pool.name, rankings: rankedEntries }
   })
 
   fastify.get('/:code/daily-summary', { preHandler: requireAuth }, async (request, reply) => {
@@ -253,20 +268,26 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
       })
     )
 
-    const sortedCurrent = [...allRankings].sort((a, b) => {
-      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints
-      return b.exactScores - a.exactScores
-    })
+    const sortedCurrent = standardRanking(
+      [...allRankings].sort((a, b) => {
+        if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints
+        return b.exactScores - a.exactScores
+      }),
+      (a, b) => a.totalPoints === b.totalPoints && a.exactScores === b.exactScores
+    )
 
-    const sortedPrevious = [...allRankings].sort((a, b) => {
-      if (b.previousPoints !== a.previousPoints) return b.previousPoints - a.previousPoints
-      return b.previousExact - a.previousExact
-    })
+    const rankedPrevious = standardRanking(
+      [...allRankings].sort((a, b) => {
+        if (b.previousPoints !== a.previousPoints) return b.previousPoints - a.previousPoints
+        return b.previousExact - a.previousExact
+      }),
+      (a, b) => a.previousPoints === b.previousPoints && a.previousExact === b.previousExact
+    )
 
-    const previousPositionMap = new Map(sortedPrevious.map((r, i) => [r.userId, i + 1]))
+    const previousPositionMap = new Map(rankedPrevious.map(r => [r.userId, r.position]))
 
-    const currentRanking = sortedCurrent.map((member, index) => {
-      const currentPosition = index + 1
+    const currentRanking = sortedCurrent.map((member) => {
+      const currentPosition = member.position
       const previousPosition = previousPositionMap.get(member.userId) ?? currentPosition
       return {
         position: currentPosition,
