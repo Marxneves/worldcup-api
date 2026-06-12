@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { requireAuth, requireAdmin } from '../middleware/auth.middleware'
+import { requireAuth } from '../middleware/auth.middleware'
 
 function generateCode(): string {
   return Math.random().toString(36).substring(2, 8).toUpperCase()
@@ -150,7 +150,7 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
     return { poolName: pool.name, rankings }
   })
 
-  fastify.get('/:code/daily-summary', { preHandler: requireAdmin }, async (request, reply) => {
+  fastify.get('/:code/daily-summary', { preHandler: requireAuth }, async (request, reply) => {
     const { code } = request.params as { code: string }
     const { date, upToGame } = request.query as { date?: string; upToGame?: string }
     const upToGameNumber = upToGame ? parseInt(upToGame, 10) : null
@@ -166,8 +166,6 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
     const gamesOnDate = await fastify.prisma.game.findMany({
       where: {
         matchDate: { gte: startUTC, lt: endUTC },
-        score1: { not: null },
-        score2: { not: null },
       },
       orderBy: { number: 'asc' },
     })
