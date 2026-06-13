@@ -23,7 +23,24 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
     return { games }
   })
 
-  fastify.get('/sync-live', { preHandler: requireAuth }, async (_request, reply) => {
+  fastify.get('/sync-live', { preHandler: requireAuth }, async (request, reply) => {
+    const { mockLive } = request.query as { mockLive?: string }
+
+    if (mockLive && process.env.NODE_ENV !== 'production') {
+      const gameNumber = parseInt(mockLive)
+      const game = await fastify.prisma.game.findUnique({ where: { number: gameNumber } })
+      if (game) {
+        return {
+          liveScores: [{
+            gameNumber,
+            score1: 1,
+            score2: 0,
+            timeElapsed: '67\'',
+          }],
+        }
+      }
+    }
+
     try {
       const liveScores = await syncLiveResults(fastify.prisma)
       return { liveScores }

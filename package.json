@@ -8,7 +8,8 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test:clear-result": "tsx scripts/clear-game-result.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
