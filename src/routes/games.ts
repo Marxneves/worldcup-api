@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify'
 import { requireAuth } from '../middleware/auth.middleware'
+import { syncLiveResults } from '../services/live-scores.service'
 
 export const gameRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/', { preHandler: requireAuth }, async () => {
@@ -20,5 +21,14 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       take: 8,
     })
     return { games }
+  })
+
+  fastify.get('/sync-live', { preHandler: requireAuth }, async (_request, reply) => {
+    try {
+      const liveScores = await syncLiveResults(fastify.prisma)
+      return { liveScores }
+    } catch {
+      return reply.send({ liveScores: [] })
+    }
   })
 }
