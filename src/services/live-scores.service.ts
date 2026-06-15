@@ -30,11 +30,17 @@ export interface LiveScore {
 // Cache em memória de 1 minuto — evita chamar a ESPN a cada requisição
 let espnCache: { liveScores: LiveScore[]; expiresAt: number } | null = null
 
-async function fetchFromEspn(): Promise<EspnCompetition[]> {
-  const response = await fetch(
-    'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard',
-    { signal: AbortSignal.timeout(8000) }
-  )
+// ESPN classifica jogos pelo horário local americano (UTC-4 a UTC-7).
+// Um jogo às 02:00 UTC é "ontem" no horário US. Subtraindo 7h (UTC-7, offset máximo)
+// obtemos a data local mais conservadora para consultar o scoreboard correto.
+function toEspnDateKey(utcDate: Date): string {
+  const localish = new Date(utcDate.getTime() - 7 * 60 * 60 * 1000)
+  return localish.toISOString().slice(0, 10).replace(/-/g, '')
+}
+
+async function fetchFromEspnForDate(dateKey: string): Promise<EspnCompetition[]> {
+  const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateKey}`
+  const response = await fetch(url, { signal: AbortSignal.timeout(8000) })
   if (!response.ok) throw new Error(`ESPN HTTP ${response.status}`)
   const data = await response.json() as { events: EspnEvent[] }
   return data.events.map(e => e.competitions[0])
@@ -63,11 +69,15 @@ export async function syncLiveResults(prisma: PrismaClient): Promise<LiveScore[]
     return []
   }
 
-  const competitions = await fetchFromEspn()
+  // Coleta as datas ESPN únicas necessárias para cobrir todos os jogos pendentes
+  const espnDateKeys = new Set(pendingGames.map(g => toEspnDateKey(g.matchDate)))
+  const allCompetitions = (
+    await Promise.all([...espnDateKeys].map(fetchFromEspnForDate))
+  ).flat()
 
   // Indexa pelo minuto UTC do início — bate exato com matchDate do banco
   const espnByMinute = new Map(
-    competitions
+    allCompetitions
       .filter(c => c.status.type.state !== 'pre')
       .map(c => [toMinuteKey(c.date), c])
   )
