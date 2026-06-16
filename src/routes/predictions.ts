@@ -44,6 +44,22 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
       create: { userId: user.id, poolId, gameId, score1, score2 },
     })
 
+    const shadowMemberships = await fastify.prisma.poolMember.findMany({
+      where: { userId: user.id, isShadow: true, NOT: { poolId } },
+    })
+    for (const shadow of shadowMemberships) {
+      const lockedInShadow = await fastify.prisma.prediction.findUnique({
+        where: { userId_poolId_gameId: { userId: user.id, poolId: shadow.poolId, gameId } },
+        select: { isLocked: true },
+      })
+      if (lockedInShadow?.isLocked) continue
+      await fastify.prisma.prediction.upsert({
+        where: { userId_poolId_gameId: { userId: user.id, poolId: shadow.poolId, gameId } },
+        update: { score1, score2 },
+        create: { userId: user.id, poolId: shadow.poolId, gameId, score1, score2 },
+      })
+    }
+
     return { prediction }
   })
 

@@ -78,7 +78,7 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/my', { preHandler: requireAuth }, async (request) => {
     const user = request.user as { id: string }
     const memberships = await fastify.prisma.poolMember.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, isShadow: false },
       include: {
         pool: {
           include: {
