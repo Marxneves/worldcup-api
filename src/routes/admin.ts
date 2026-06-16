@@ -11,6 +11,11 @@ const copyMemberSchema = z.object({
   asShadow: z.boolean(),
 })
 
+const removeMemberSchema = z.object({
+  userId: z.string(),
+  poolId: z.string(),
+})
+
 const updateResultSchema = z.object({
   gameNumber: z.number().int(),
   score1: z.number().int().min(0),
@@ -139,6 +144,24 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
       message: `${user?.name} copiado para o bolão destino com ${sourcePredictions.length} palpite(s)`,
       copiedPredictions: sourcePredictions.length,
     }
+  })
+
+  fastify.delete('/remove-member', { preHandler: requireAdmin }, async (request, reply) => {
+    const body = removeMemberSchema.safeParse(request.body)
+    if (!body.success) return reply.status(400).send({ error: 'Dados inválidos' })
+
+    const { userId, poolId } = body.data
+
+    const membership = await fastify.prisma.poolMember.findUnique({
+      where: { poolId_userId: { poolId, userId } },
+      include: { user: true },
+    })
+    if (!membership) return reply.status(404).send({ error: 'Membro não encontrado neste bolão' })
+
+    await fastify.prisma.prediction.deleteMany({ where: { userId, poolId } })
+    await fastify.prisma.poolMember.delete({ where: { poolId_userId: { poolId, userId } } })
+
+    return { message: `${membership.user.name} removido do bolão` }
   })
 
   fastify.get('/make-admin', async (request, reply) => {
