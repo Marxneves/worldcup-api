@@ -22,6 +22,10 @@ const updateResultSchema = z.object({
   score2: z.number().int().min(0),
 })
 
+const updateMatchDateSchema = z.object({
+  matchDate: z.string().datetime(),
+})
+
 export const adminRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/results', { preHandler: requireAdmin }, async (request, reply) => {
     const body = updateResultSchema.safeParse(request.body)
@@ -162,6 +166,23 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
     await fastify.prisma.poolMember.delete({ where: { poolId_userId: { poolId, userId } } })
 
     return { message: `${membership.user.name} removido do bolão` }
+  })
+
+  fastify.patch('/games/:number/match-date', { preHandler: requireAdmin }, async (request, reply) => {
+    const gameNumber = Number((request.params as { number: string }).number)
+    const body = updateMatchDateSchema.safeParse(request.body)
+    if (!body.success) return reply.status(400).send({ error: 'Data inválida' })
+    if (isNaN(gameNumber)) return reply.status(400).send({ error: 'Número de jogo inválido' })
+
+    const game = await fastify.prisma.game.findUnique({ where: { number: gameNumber } })
+    if (!game) return reply.status(404).send({ error: 'Jogo não encontrado' })
+
+    const updated = await fastify.prisma.game.update({
+      where: { id: game.id },
+      data: { matchDate: new Date(body.data.matchDate) },
+    })
+
+    return { message: `Horário do jogo ${gameNumber} atualizado`, matchDate: updated.matchDate }
   })
 
   fastify.get('/make-admin', async (request, reply) => {

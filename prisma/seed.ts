@@ -33,7 +33,7 @@ const games = [
   { number: 28, group: 'A', matchDate: '2026-06-19T01:00:00Z', team1: 'México',               team2: 'Coreia do Sul' },
   { number: 29, group: 'D', matchDate: '2026-06-19T19:00:00Z', team1: 'Estados Unidos',        team2: 'Austrália' },
   { number: 30, group: 'C', matchDate: '2026-06-19T22:00:00Z', team1: 'Escócia',              team2: 'Marrocos' },
-  { number: 31, group: 'C', matchDate: '2026-06-20T01:00:00Z', team1: 'Brasil',               team2: 'Haiti' },
+  { number: 31, group: 'C', matchDate: '2026-06-20T00:30:00Z', team1: 'Brasil',               team2: 'Haiti' },
   { number: 32, group: 'D', matchDate: '2026-06-20T03:00:00Z', team1: 'Turquia',              team2: 'Paraguai' },
   { number: 33, group: 'F', matchDate: '2026-06-20T17:00:00Z', team1: 'Holanda',              team2: 'Suécia' },
   { number: 34, group: 'E', matchDate: '2026-06-20T20:00:00Z', team1: 'Alemanha',             team2: 'Costa do Marfim' },
