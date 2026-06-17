@@ -30,12 +30,14 @@ export interface LiveScore {
 // Cache em memória de 1 minuto — evita chamar a ESPN a cada requisição
 let espnCache: { liveScores: LiveScore[]; expiresAt: number } | null = null
 
-// ESPN classifica jogos pelo horário local americano (UTC-4 a UTC-7).
-// Um jogo às 02:00 UTC é "ontem" no horário US. Subtraindo 7h (UTC-7, offset máximo)
-// obtemos a data local mais conservadora para consultar o scoreboard correto.
-function toEspnDateKey(utcDate: Date): string {
+// ESPN classifica jogos pelo horário local do venue (UTC-4 a UTC-7).
+// Para jogos madrugada UTC (ex: 04:00 UTC = 00:00 Eastern), a ESPN pode usar
+// a data UTC ou a data UTC-7 — geramos ambas para cobrir os dois casos.
+function toEspnDateKeys(utcDate: Date): string[] {
+  const utcKey = utcDate.toISOString().slice(0, 10).replace(/-/g, '')
   const localish = new Date(utcDate.getTime() - 7 * 60 * 60 * 1000)
-  return localish.toISOString().slice(0, 10).replace(/-/g, '')
+  const localKey = localish.toISOString().slice(0, 10).replace(/-/g, '')
+  return utcKey === localKey ? [utcKey] : [utcKey, localKey]
 }
 
 async function fetchFromEspnForDate(dateKey: string): Promise<EspnCompetition[]> {
@@ -70,7 +72,7 @@ export async function syncLiveResults(prisma: PrismaClient): Promise<LiveScore[]
   }
 
   // Coleta as datas ESPN únicas necessárias para cobrir todos os jogos pendentes
-  const espnDateKeys = new Set(pendingGames.map(g => toEspnDateKey(g.matchDate)))
+  const espnDateKeys = new Set(pendingGames.flatMap(g => toEspnDateKeys(g.matchDate)))
   const allCompetitions = (
     await Promise.all([...espnDateKeys].map(fetchFromEspnForDate))
   ).flat()
