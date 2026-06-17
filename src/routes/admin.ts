@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAdmin } from '../middleware/auth.middleware'
-import { fetchResultsFromGlobo } from '../services/scraper.service'
+import { syncLiveResults, clearLiveCache } from '../services/live-scores.service'
 import { recalculatePoints } from '../services/scoring.service'
 
 const copyMemberSchema = z.object({
@@ -47,20 +47,18 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post('/fetch-results', { preHandler: requireAdmin }, async (_, reply) => {
     try {
-      const updated = await fetchResultsFromGlobo()
-      for (const result of updated) {
-        const game = await fastify.prisma.game.findUnique({ where: { number: result.gameNumber } })
-        if (!game) continue
-
-        await fastify.prisma.game.update({
-          where: { id: game.id },
-          data: { score1: result.score1, score2: result.score2, resultFetched: true },
-        })
-        await recalculatePoints(fastify.prisma, game.id, result.score1, result.score2)
+      clearLiveCache()
+      const before = await fastify.prisma.game.count({ where: { score1: { not: null } } })
+      await syncLiveResults(fastify.prisma)
+      const after = await fastify.prisma.game.count({ where: { score1: { not: null } } })
+      const updated = after - before
+      return {
+        message: updated > 0
+          ? `${updated} resultado(s) atualizado(s) via ESPN`
+          : 'Nenhum resultado novo encontrado',
       }
-      return { message: `${updated.length} resultado(s) atualizado(s) via scraping` }
     } catch (err) {
-      return reply.status(502).send({ error: 'Falha ao buscar resultados do GE Globo', detail: String(err) })
+      return reply.status(502).send({ error: 'Falha ao sincronizar com a ESPN', detail: String(err) })
     }
   })
 
