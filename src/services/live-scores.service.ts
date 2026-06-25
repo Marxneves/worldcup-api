@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { recalculatePoints } from './scoring.service'
+import { advanceBracket } from './bracket.service'
 
 interface EspnCompetitor {
   homeAway: 'home' | 'away'
@@ -136,6 +137,9 @@ export async function syncLiveResults(prisma: PrismaClient): Promise<LiveScore[]
         data: { score1, score2, resultFetched: true },
       })
       await recalculatePoints(prisma, game.id, score1, score2)
+      if (game.number >= 73) {
+        await advanceBracket(prisma, game.number, game.team1, game.team2, score1, score2)
+      }
     } else if (game.matchDate >= twoHoursAgo) {
       liveScores.push({
         gameNumber: game.number,

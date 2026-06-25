@@ -182,7 +182,7 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
       where: {
         matchDate: { gte: startUTC, lt: endUTC },
       },
-      orderBy: { number: 'asc' },
+      orderBy: { matchDate: 'asc' },
     })
 
     // When filtering by a specific game, show only that game's card

@@ -9,7 +9,19 @@ const savePredictionSchema = z.object({
   score2: z.number().int().min(0).max(30),
 })
 
-const lockAllSchema = z.object({ poolId: z.string() })
+const lockAllSchema = z.object({
+  poolId: z.string(),
+  round: z.enum(['grupos', 'R32', 'R16', 'QF', 'SF', 'FIN']).optional().default('grupos'),
+})
+
+const ROUND_RANGES = {
+  grupos: { gte: 1, lte: 72 },
+  R32:    { gte: 73, lte: 88 },
+  R16:    { gte: 89, lte: 96 },
+  QF:     { gte: 97, lte: 100 },
+  SF:     { gte: 101, lte: 102 },
+  FIN:    { gte: 103, lte: 104 },
+} as const
 
 export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/save', { preHandler: requireAuth }, async (request, reply) => {
@@ -68,7 +80,7 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
     if (!body.success) return reply.status(400).send({ error: 'Dados inválidos' })
 
     const user = request.user as { id: string }
-    const { poolId } = body.data
+    const { poolId, round } = body.data
 
     const isMember = await fastify.prisma.poolMember.findUnique({
       where: { poolId_userId: { poolId, userId: user.id } },
@@ -76,11 +88,14 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
     if (!isMember) return reply.status(403).send({ error: 'Você não faz parte desse bolão' })
 
     const now = new Date()
+    const numberFilter = ROUND_RANGES[round]
+    const gameFilter = { number: numberFilter }
+
     const openGamesCount = await fastify.prisma.game.count({
-      where: { matchDate: { gt: now } },
+      where: { matchDate: { gt: now }, ...gameFilter },
     })
     const filledOpenCount = await fastify.prisma.prediction.count({
-      where: { userId: user.id, poolId, game: { matchDate: { gt: now } } },
+      where: { userId: user.id, poolId, game: { matchDate: { gt: now }, ...gameFilter } },
     })
     if (filledOpenCount < openGamesCount) {
       return reply.status(400).send({
@@ -89,11 +104,11 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     await fastify.prisma.prediction.deleteMany({
-      where: { userId: user.id, poolId, game: { matchDate: { lte: now } } },
+      where: { userId: user.id, poolId, game: { matchDate: { lte: now }, ...gameFilter } },
     })
 
     await fastify.prisma.prediction.updateMany({
-      where: { userId: user.id, poolId },
+      where: { userId: user.id, poolId, game: gameFilter },
       data: { isLocked: true },
     })
 
@@ -154,7 +169,7 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
     })
     if (!isMember) return reply.status(403).send({ error: 'Sem acesso a esse bolão' })
 
-    const totalGames = await fastify.prisma.game.count()
+    const totalGames = await fastify.prisma.game.count({ where: { number: { lte: 72 } } })
     const requesterLockedCount = await fastify.prisma.prediction.count({
       where: { userId: requester.id, poolId, isLocked: true },
     })

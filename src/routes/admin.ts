@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { requireAdmin } from '../middleware/auth.middleware'
 import { syncLiveResults, clearLiveCache } from '../services/live-scores.service'
 import { recalculatePoints } from '../services/scoring.service'
+import { advanceBracket, resolveR32Teams } from '../services/bracket.service'
 
 const copyMemberSchema = z.object({
   userId: z.string(),
@@ -41,6 +42,10 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
     })
 
     await recalculatePoints(fastify.prisma, game.id, score1, score2)
+
+    if (gameNumber >= 73) {
+      await advanceBracket(fastify.prisma, gameNumber, game.team1, game.team2, score1, score2)
+    }
 
     return { message: `Resultado do jogo ${gameNumber} atualizado: ${score1} x ${score2}` }
   })
@@ -181,6 +186,69 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
     })
 
     return { message: `Horário do jogo ${gameNumber} atualizado`, matchDate: updated.matchDate }
+  })
+
+  fastify.post('/sync-bracket', { preHandler: requireAdmin }, async () => {
+    const resolvedCount = await resolveR32Teams(fastify.prisma)
+
+    // Mapa de avanço: quando o jogo fromGameNumber termina, o vencedor (ou perdedor) vai para o slot toField do toGameNumber
+    const BRACKET_MAP: Array<{ from: number; to: number; field: 'team1' | 'team2'; useLoser?: boolean }> = [
+      // 16 avos → oitavas
+      { from: 73, to: 90, field: 'team1' }, { from: 74, to: 89, field: 'team1' },
+      { from: 75, to: 90, field: 'team2' }, { from: 76, to: 91, field: 'team1' },
+      { from: 77, to: 89, field: 'team2' }, { from: 78, to: 91, field: 'team2' },
+      { from: 79, to: 92, field: 'team1' }, { from: 80, to: 92, field: 'team2' },
+      { from: 81, to: 94, field: 'team1' }, { from: 82, to: 94, field: 'team2' },
+      { from: 83, to: 93, field: 'team1' }, { from: 84, to: 93, field: 'team2' },
+      { from: 85, to: 96, field: 'team1' }, { from: 86, to: 95, field: 'team1' },
+      { from: 87, to: 96, field: 'team2' }, { from: 88, to: 95, field: 'team2' },
+      // oitavas → quartas
+      { from: 89, to: 97, field: 'team1' }, { from: 90, to: 97, field: 'team2' },
+      { from: 91, to: 99, field: 'team1' }, { from: 92, to: 99, field: 'team2' },
+      { from: 93, to: 98, field: 'team1' }, { from: 94, to: 98, field: 'team2' },
+      { from: 95, to: 100, field: 'team1' }, { from: 96, to: 100, field: 'team2' },
+      // quartas → semis
+      { from: 97, to: 101, field: 'team1' }, { from: 98, to: 101, field: 'team2' },
+      { from: 99, to: 102, field: 'team1' }, { from: 100, to: 102, field: 'team2' },
+      // semis → final / terceiro lugar
+      { from: 101, to: 104, field: 'team1' }, { from: 102, to: 104, field: 'team2' },
+      { from: 101, to: 103, field: 'team1', useLoser: true }, { from: 102, to: 103, field: 'team2', useLoser: true },
+    ]
+
+    const completed = await fastify.prisma.game.findMany({
+      where: { number: { gte: 73 }, score1: { not: null } },
+    })
+
+    const gameByNumber = new Map(completed.map(g => [g.number, g]))
+    let updatedCount = 0
+    const log: string[] = []
+
+    for (const rule of BRACKET_MAP) {
+      const source = gameByNumber.get(rule.from)
+      if (!source || source.score1 === null) continue
+
+      const advancing = rule.useLoser
+        ? (source.score1 > source.score2! ? source.team2 : source.team1)
+        : (source.score1 > source.score2! ? source.team1 : source.team2)
+
+      const target = await fastify.prisma.game.findUnique({ where: { number: rule.to } })
+      if (!target || target.score1 !== null) continue
+      if (target[rule.field] === advancing) continue
+
+      await fastify.prisma.game.update({
+        where: { id: target.id },
+        data: { [rule.field]: advancing },
+      })
+      log.push(`J${rule.to}.${rule.field} = ${advancing}`)
+      updatedCount++
+    }
+
+    return {
+      message: updatedCount > 0 || resolvedCount > 0
+        ? `${updatedCount} slot(s) do bracket atualizados, ${resolvedCount} placeholder(s) resolvidos`
+        : 'Bracket já está em dia',
+      updates: log,
+    }
   })
 
   fastify.get('/make-admin', async (request, reply) => {

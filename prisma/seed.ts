@@ -75,6 +75,48 @@ const games = [
   { number: 70, group: 'K', matchDate: '2026-06-27T23:30:00Z', team1: 'RD Congo',             team2: 'Uzbequistão' },
   { number: 71, group: 'J', matchDate: '2026-06-28T02:00:00Z', team1: 'Argélia',              team2: 'Áustria' },
   { number: 72, group: 'J', matchDate: '2026-06-28T02:00:00Z', team1: 'Jordânia',             team2: 'Argentina' },
+
+  // ─── 16 avos de final ─────────────────────────────────────────────────────
+  { number: 73, group: 'R32', matchDate: '2026-06-28T19:00:00Z', team1: '2º Grupo A',         team2: '2º Grupo B' },
+  { number: 74, group: 'R32', matchDate: '2026-06-29T20:30:00Z', team1: '1º Grupo E',         team2: '3º (A/B/C/D/F)' },
+  { number: 75, group: 'R32', matchDate: '2026-06-30T01:00:00Z', team1: '1º Grupo F',         team2: '2º Grupo C' },
+  { number: 76, group: 'R32', matchDate: '2026-06-29T17:00:00Z', team1: '1º Grupo C',         team2: '2º Grupo F' },
+  { number: 77, group: 'R32', matchDate: '2026-06-30T21:00:00Z', team1: '1º Grupo I',         team2: '3º (C/D/F/G/H)' },
+  { number: 78, group: 'R32', matchDate: '2026-06-30T17:00:00Z', team1: '2º Grupo E',         team2: '2º Grupo I' },
+  { number: 79, group: 'R32', matchDate: '2026-07-01T01:00:00Z', team1: '1º Grupo A',         team2: '3º (C/E/F/H/I)' },
+  { number: 80, group: 'R32', matchDate: '2026-07-01T16:00:00Z', team1: '1º Grupo L',         team2: '3º (E/H/I/J/K)' },
+  { number: 81, group: 'R32', matchDate: '2026-07-02T00:00:00Z', team1: '1º Grupo D',         team2: '3º (B/C/G/I/J)' },
+  { number: 82, group: 'R32', matchDate: '2026-07-01T20:00:00Z', team1: '1º Grupo G',         team2: '3º (A/H/I/J/K)' },
+  { number: 83, group: 'R32', matchDate: '2026-07-02T23:00:00Z', team1: '2º Grupo K',         team2: '2º Grupo L' },
+  { number: 84, group: 'R32', matchDate: '2026-07-02T19:00:00Z', team1: '1º Grupo H',         team2: '2º Grupo J' },
+  { number: 85, group: 'R32', matchDate: '2026-07-03T03:00:00Z', team1: '1º Grupo B',         team2: '3º (E/F/G/I/J)' },
+  { number: 86, group: 'R32', matchDate: '2026-07-03T22:00:00Z', team1: '1º Grupo J',         team2: '2º Grupo H' },
+  { number: 87, group: 'R32', matchDate: '2026-07-04T01:30:00Z', team1: '1º Grupo K',         team2: '3º (D/E/I/J/L)' },
+  { number: 88, group: 'R32', matchDate: '2026-07-03T18:00:00Z', team1: '2º Grupo D',         team2: '2º Grupo G' },
+
+  // ─── Oitavas de final ─────────────────────────────────────────────────────
+  { number: 89,  group: 'R16', matchDate: '2026-07-04T21:00:00Z', team1: 'Venc. J74',  team2: 'Venc. J77' },
+  { number: 90,  group: 'R16', matchDate: '2026-07-04T17:00:00Z', team1: 'Venc. J73',  team2: 'Venc. J75' },
+  { number: 91,  group: 'R16', matchDate: '2026-07-05T20:00:00Z', team1: 'Venc. J76',  team2: 'Venc. J78' },
+  { number: 92,  group: 'R16', matchDate: '2026-07-06T00:00:00Z', team1: 'Venc. J79',  team2: 'Venc. J80' },
+  { number: 93,  group: 'R16', matchDate: '2026-07-06T19:00:00Z', team1: 'Venc. J83',  team2: 'Venc. J84' },
+  { number: 94,  group: 'R16', matchDate: '2026-07-07T00:00:00Z', team1: 'Venc. J81',  team2: 'Venc. J82' },
+  { number: 95,  group: 'R16', matchDate: '2026-07-07T16:00:00Z', team1: 'Venc. J86',  team2: 'Venc. J88' },
+  { number: 96,  group: 'R16', matchDate: '2026-07-07T20:00:00Z', team1: 'Venc. J85',  team2: 'Venc. J87' },
+
+  // ─── Quartas de final ─────────────────────────────────────────────────────
+  { number: 97,  group: 'QF',  matchDate: '2026-07-09T20:00:00Z', team1: 'Venc. J89',  team2: 'Venc. J90' },
+  { number: 98,  group: 'QF',  matchDate: '2026-07-10T19:00:00Z', team1: 'Venc. J93',  team2: 'Venc. J94' },
+  { number: 99,  group: 'QF',  matchDate: '2026-07-11T21:00:00Z', team1: 'Venc. J91',  team2: 'Venc. J92' },
+  { number: 100, group: 'QF',  matchDate: '2026-07-12T01:00:00Z', team1: 'Venc. J95',  team2: 'Venc. J96' },
+
+  // ─── Semifinais ───────────────────────────────────────────────────────────
+  { number: 101, group: 'SF',  matchDate: '2026-07-14T19:00:00Z', team1: 'Venc. J97',  team2: 'Venc. J98' },
+  { number: 102, group: 'SF',  matchDate: '2026-07-15T19:00:00Z', team1: 'Venc. J99',  team2: 'Venc. J100' },
+
+  // ─── Terceiro lugar / Final ────────────────────────────────────────────────
+  { number: 103, group: 'TP',  matchDate: '2026-07-18T21:00:00Z', team1: 'Perd. J101', team2: 'Perd. J102' },
+  { number: 104, group: 'FIN', matchDate: '2026-07-19T19:00:00Z', team1: 'Venc. J101', team2: 'Venc. J102' },
 ]
 
 async function main() {
@@ -83,7 +125,7 @@ async function main() {
   for (const game of games) {
     await prisma.game.upsert({
       where: { number: game.number },
-      update: { matchDate: new Date(game.matchDate) },
+      update: { matchDate: new Date(game.matchDate), team1: game.team1, team2: game.team2 },
       create: {
         number: game.number,
         group: game.group,
