@@ -308,4 +308,110 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
       ranking: currentRanking,
     }
   })
+
+  fastify.get('/:code/ranking-stats', { preHandler: requireAuth }, async (request, reply) => {
+    const { code } = request.params as { code: string }
+    const pool = await fastify.prisma.pool.findUnique({ where: { code: code.toUpperCase() } })
+    if (!pool) return reply.status(404).send({ error: 'Bolão não encontrado' })
+
+    const now = new Date()
+
+    const members = await fastify.prisma.poolMember.findMany({
+      where: { poolId: pool.id },
+      include: { user: true },
+    })
+
+    const remainingGames = await fastify.prisma.game.findMany({
+      where: { score1: null },
+      orderBy: { number: 'asc' },
+    })
+
+    const allPredictions = await fastify.prisma.prediction.findMany({
+      where: { poolId: pool.id, isLocked: true },
+    })
+
+    type PredMap = Map<string, { score1: number; score2: number }>
+
+    const memberDataList = members.map((member) => {
+      const memberPreds = allPredictions.filter(p => p.userId === member.userId)
+      const currentPoints = memberPreds.reduce((sum, p) => sum + (p.points ?? 0), 0)
+      const exactScores = memberPreds.filter(p => p.points === 3).length
+      const predByGameId: PredMap = new Map(
+        memberPreds.map(p => [p.gameId, { score1: p.score1, score2: p.score2 }])
+      )
+      return { userId: member.userId, name: member.user.name, currentPoints, exactScores, predByGameId }
+    })
+
+    memberDataList.sort((a, b) => {
+      if (b.currentPoints !== a.currentPoints) return b.currentPoints - a.currentPoints
+      return b.exactScores - a.exactScores
+    })
+
+    const rankedList = standardRanking(
+      memberDataList,
+      (a, b) => a.currentPoints === b.currentPoints && a.exactScores === b.exactScores
+    )
+
+    function getWinner(s1: number, s2: number): 'team1' | 'draw' | 'team2' {
+      if (s1 > s2) return 'team1'
+      if (s1 < s2) return 'team2'
+      return 'draw'
+    }
+
+    function maxDiffBoverA(
+      gameStarted: boolean,
+      predB: { score1: number; score2: number } | undefined,
+      predA: { score1: number; score2: number } | undefined
+    ): number {
+      if (!predB && gameStarted) return 0
+      if (!predA) return 3
+      if (predB && predB.score1 === predA.score1 && predB.score2 === predA.score2) return 0
+      if (!predB) return 3 // game not started, B can still predict to beat A's locked prediction
+      if (getWinner(predB.score1, predB.score2) === getWinner(predA.score1, predA.score2)) return 2
+      return 3
+    }
+
+    function maxPossibleForMember(predByGameId: PredMap): number {
+      return remainingGames.reduce((sum, game) => {
+        const gameStarted = game.matchDate <= now
+        if (!predByGameId.has(game.id) && gameStarted) return sum
+        return sum + 3
+      }, 0)
+    }
+
+    const results = rankedList.map((memberB) => {
+      const opponents = rankedList
+        .filter(memberA => memberA.userId !== memberB.userId)
+        .map((memberA) => {
+          const gap = memberA.currentPoints - memberB.currentPoints
+          let maxGain = 0
+          for (const game of remainingGames) {
+            const gameStarted = game.matchDate <= now
+            maxGain += maxDiffBoverA(gameStarted, memberB.predByGameId.get(game.id), memberA.predByGameId.get(game.id))
+          }
+          return {
+            userId: memberA.userId,
+            name: memberA.name,
+            currentRank: memberA.position,
+            gap,
+            maxGain,
+            canOvertake: maxGain > gap,
+            canReach: maxGain >= gap,
+          }
+        })
+
+      const definitivelyAhead = opponents.filter(o => o.gap > 0 && !o.canOvertake).length
+      const bestPossibleRank = definitivelyAhead + 1
+
+      const { predByGameId: _, ...memberPublic } = memberB
+      return {
+        ...memberPublic,
+        maxAdditionalPoints: maxPossibleForMember(memberB.predByGameId),
+        bestPossibleRank,
+        opponents,
+      }
+    })
+
+    return { remainingGamesCount: remainingGames.length, members: results }
+  })
 }

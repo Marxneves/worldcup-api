@@ -81,3 +81,11 @@ model Prediction {
   @@unique([userId, poolId, gameId])
   @@map("predictions")
 }
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}

@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { requireAdmin } from '../middleware/auth.middleware'
+import { requireAdmin, requireAuth } from '../middleware/auth.middleware'
 import { syncLiveResults, clearLiveCache } from '../services/live-scores.service'
 import { recalculatePoints } from '../services/scoring.service'
 import { advanceBracket, resolveR32Teams } from '../services/bracket.service'
@@ -249,6 +249,24 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
         : 'Bracket já está em dia',
       updates: log,
     }
+  })
+
+  fastify.get('/features', { preHandler: requireAuth }, async (_request, reply) => {
+    const setting = await fastify.prisma.setting.findUnique({ where: { key: 'stats_enabled' } })
+    return { statsEnabled: setting?.value === 'true' }
+  })
+
+  fastify.post('/features', { preHandler: requireAdmin }, async (request, reply) => {
+    const schema = z.object({ statsEnabled: z.boolean() })
+    const body = schema.safeParse(request.body)
+    if (!body.success) return reply.status(400).send({ error: 'Invalid body' })
+
+    await fastify.prisma.setting.upsert({
+      where: { key: 'stats_enabled' },
+      update: { value: body.data.statsEnabled ? 'true' : 'false' },
+      create: { key: 'stats_enabled', value: body.data.statsEnabled ? 'true' : 'false' },
+    })
+    return { statsEnabled: body.data.statsEnabled }
   })
 
   fastify.get('/make-admin', async (request, reply) => {
