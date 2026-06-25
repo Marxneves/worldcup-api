@@ -5,6 +5,112 @@ import { syncLiveResults, clearLiveCache } from '../services/live-scores.service
 import { recalculatePoints } from '../services/scoring.service'
 import { advanceBracket, resolveR32Teams } from '../services/bracket.service'
 
+interface OddsApiOutcome {
+  name: string
+  price: number
+}
+
+interface OddsApiMarket {
+  key: string
+  outcomes: OddsApiOutcome[]
+}
+
+interface OddsApiBookmaker {
+  key: string
+  markets: OddsApiMarket[]
+}
+
+interface OddsApiEvent {
+  id: string
+  home_team: string
+  away_team: string
+  bookmakers: OddsApiBookmaker[]
+}
+
+const TEAM_NAME_MAP: Record<string, string> = {
+  'USA': 'Estados Unidos', 'United States': 'Estados Unidos',
+  'Brazil': 'Brasil', 'Germany': 'Alemanha', 'France': 'França',
+  'Spain': 'Espanha', 'Argentina': 'Argentina', 'England': 'Inglaterra',
+  'Portugal': 'Portugal', 'Netherlands': 'Holanda', 'Belgium': 'Bélgica',
+  'Croatia': 'Croácia', 'Morocco': 'Marrocos', 'Japan': 'Japão',
+  'Senegal': 'Senegal', 'Australia': 'Austrália', 'South Korea': 'Coreia do Sul',
+  'Mexico': 'México', 'Colombia': 'Colômbia', 'Ecuador': 'Equador',
+  'Uruguay': 'Uruguai', 'Chile': 'Chile', 'Peru': 'Peru',
+  'Switzerland': 'Suíça', 'Denmark': 'Dinamarca', 'Sweden': 'Suécia',
+  'Poland': 'Polônia', 'Serbia': 'Sérvia', 'Austria': 'Áustria',
+  'Hungary': 'Hungria', 'Slovakia': 'Eslováquia', 'Slovenia': 'Eslovênia',
+  'Czech Republic': 'República Tcheca', 'Turkey': 'Turquia',
+  'Ukraine': 'Ucrânia', 'Romania': 'Romênia', 'Greece': 'Grécia',
+  'Scotland': 'Escócia', 'Wales': 'País de Gales', 'Albania': 'Albânia',
+  'Canada': 'Canadá', 'Saudi Arabia': 'Arábia Saudita', 'Iran': 'Irã',
+  'Qatar': 'Catar', 'Tunisia': 'Tunísia', 'Cameroon': 'Camarões',
+  'Ghana': 'Gana', 'Nigeria': 'Nigéria', 'Egypt': 'Egito',
+  'Algeria': 'Argélia', 'Mali': 'Mali', 'Ivory Coast': 'Costa do Marfim',
+  "Côte d'Ivoire": 'Costa do Marfim', 'DR Congo': 'Congo',
+  'New Zealand': 'Nova Zelândia', 'Paraguay': 'Paraguai',
+  'Venezuela': 'Venezuela', 'Bolivia': 'Bolívia', 'Honduras': 'Honduras',
+  'Panama': 'Panamá', 'Costa Rica': 'Costa Rica', 'Jamaica': 'Jamaica',
+  'Trinidad & Tobago': 'Trinidad e Tobago',
+  'Indonesia': 'Indonésia', 'Thailand': 'Tailândia', 'Vietnam': 'Vietnã',
+  'Uzbekistan': 'Uzbequistão', 'Iraq': 'Iraque', 'Jordan': 'Jordânia',
+  'Palestine': 'Palestina', 'Syria': 'Síria', 'Kuwait': 'Kuwait',
+  'Bahrain': 'Bahrein', 'United Arab Emirates': 'Emirados Árabes',
+  'Israel': 'Israel', 'Iceland': 'Islândia', 'Norway': 'Noruega',
+  'Finland': 'Finlândia', 'Montenegro': 'Montenegro', 'Kosovo': 'Kosovo',
+  'North Macedonia': 'Macedônia do Norte', 'Bosnia and Herzegovina': 'Bósnia',
+  'Georgia': 'Geórgia', 'Kazakhstan': 'Cazaquistão',
+  'Azerbaijan': 'Azerbaijão', 'Armenia': 'Armênia',
+}
+
+function normalizeTeamName(name: string): string {
+  return (TEAM_NAME_MAP[name] ?? name).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
+function findOddsMatch(events: OddsApiEvent[], team1: string, team2: string): OddsApiEvent | null {
+  const t1 = normalizeTeamName(team1)
+  const t2 = normalizeTeamName(team2)
+  return events.find(e => {
+    const h = normalizeTeamName(e.home_team)
+    const a = normalizeTeamName(e.away_team)
+    return (h === t1 && a === t2) || (h === t2 && a === t1)
+  }) ?? null
+}
+
+function extractProbabilities(
+  event: OddsApiEvent,
+  team1: string,
+  _team2: string
+): { prob1: number; probX: number; prob2: number } {
+  const bookmaker = event.bookmakers.find(b => b.key === 'pinnacle') ?? event.bookmakers[0]
+  const h2h = bookmaker?.markets.find(m => m.key === 'h2h')
+  if (!h2h) return { prob1: 0.38, probX: 0.27, prob2: 0.35 }
+
+  const t1 = normalizeTeamName(team1)
+  const outcomes = h2h.outcomes
+
+  const homeOutcome = outcomes.find(o => normalizeTeamName(o.name) === normalizeTeamName(event.home_team))
+  const awayOutcome = outcomes.find(o => normalizeTeamName(o.name) === normalizeTeamName(event.away_team))
+  const drawOutcome = outcomes.find(o => o.name.toLowerCase() === 'draw')
+
+  if (!homeOutcome || !awayOutcome) return { prob1: 0.38, probX: 0.27, prob2: 0.35 }
+
+  const rawHome = 1 / homeOutcome.price
+  const rawDraw = drawOutcome ? 1 / drawOutcome.price : 0.27
+  const rawAway = 1 / awayOutcome.price
+  const total = rawHome + rawDraw + rawAway
+
+  const probHome = rawHome / total
+  const probDraw = rawDraw / total
+  const probAway = rawAway / total
+
+  const homeIsTeam1 = normalizeTeamName(event.home_team) === t1
+  return {
+    prob1: homeIsTeam1 ? probHome : probAway,
+    probX: probDraw,
+    prob2: homeIsTeam1 ? probAway : probHome,
+  }
+}
+
 const copyMemberSchema = z.object({
   userId: z.string(),
   sourcePoolId: z.string(),
@@ -267,6 +373,62 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
       create: { key: 'stats_enabled', value: body.data.statsEnabled ? 'true' : 'false' },
     })
     return { statsEnabled: body.data.statsEnabled }
+  })
+
+  fastify.post('/sync-odds', { preHandler: requireAdmin }, async (_request, reply) => {
+    const apiKey = process.env.ODDS_API_KEY
+    if (!apiKey) return reply.status(503).send({ error: 'ODDS_API_KEY não configurada' })
+
+    const alreadySynced = await fastify.prisma.game.count({
+      where: { score1: null, prob1: { not: null }, number: { lte: 72 } },
+    })
+    if (alreadySynced > 0) {
+      return reply.status(409).send({
+        error: 'Odds já sincronizadas. Para re-sincronizar, use ?force=true',
+        syncedCount: alreadySynced,
+      })
+    }
+
+    let oddsData: OddsApiEvent[]
+    try {
+      const response = await fetch(
+        `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey=${apiKey}&regions=eu&markets=h2h&oddsFormat=decimal`
+      )
+      if (!response.ok) {
+        const text = await response.text()
+        return reply.status(502).send({ error: `The Odds API retornou ${response.status}: ${text}` })
+      }
+      oddsData = (await response.json()) as OddsApiEvent[]
+    } catch (err) {
+      return reply.status(502).send({ error: 'Falha ao chamar The Odds API', detail: String(err) })
+    }
+
+    const pendingGames = await fastify.prisma.game.findMany({
+      where: { score1: null, number: { lte: 72 } },
+    })
+
+    let updatedCount = 0
+    const skipped: string[] = []
+
+    for (const game of pendingGames) {
+      const match = findOddsMatch(oddsData, game.team1, game.team2)
+      if (!match) {
+        skipped.push(`${game.team1} x ${game.team2}`)
+        continue
+      }
+
+      const { prob1, probX, prob2 } = extractProbabilities(match, game.team1, game.team2)
+      await fastify.prisma.game.update({
+        where: { id: game.id },
+        data: { prob1, probX, prob2 },
+      })
+      updatedCount++
+    }
+
+    return {
+      message: `${updatedCount} jogo(s) com odds atualizadas`,
+      skipped: skipped.length > 0 ? skipped : undefined,
+    }
   })
 
   fastify.get('/make-admin', async (request, reply) => {

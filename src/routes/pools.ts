@@ -419,6 +419,119 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
       }
     })
 
-    return { phase: resolvedPhase, remainingGamesCount: remainingGames.length, members: results }
+    // Monte Carlo simulation for podium probabilities
+    const SIMULATIONS = 10_000
+    const EXACT_SCORE_PROB_GIVEN_CORRECT = 0.18
+
+    // Historical score distributions given outcome
+    const SCORE_DIST_WIN: Array<[number, number, number]> = [
+      [1,0,0.28],[2,0,0.16],[2,1,0.22],[3,0,0.09],[3,1,0.12],[3,2,0.05],[4,0,0.04],[4,1,0.04],
+    ]
+    const SCORE_DIST_DRAW: Array<[number, number, number]> = [
+      [0,0,0.24],[1,1,0.45],[2,2,0.22],[3,3,0.06],[4,4,0.03],
+    ]
+
+    function pickWeighted(dist: Array<[number, number, number]>): [number, number] {
+      const r = Math.random()
+      let acc = 0
+      for (const [s1, s2, w] of dist) {
+        acc += w
+        if (r <= acc) return [s1, s2]
+      }
+      const last = dist[dist.length - 1]
+      return [last[0], last[1]]
+    }
+
+    function simulateGame(prob1: number, probX: number): [number, number] {
+      const r = Math.random()
+      if (r < prob1) {
+        const [s1, s2] = pickWeighted(SCORE_DIST_WIN)
+        return [s1, s2]
+      }
+      if (r < prob1 + probX) {
+        const [s1, s2] = pickWeighted(SCORE_DIST_DRAW)
+        return [s1, s2]
+      }
+      const [s2, s1] = pickWeighted(SCORE_DIST_WIN)
+      return [s1, s2]
+    }
+
+    function scoreForPrediction(
+      pred: { score1: number; score2: number } | undefined,
+      simScore1: number,
+      simScore2: number
+    ): number {
+      if (!pred) return 0
+      if (pred.score1 === simScore1 && pred.score2 === simScore2) return 3
+      const predWinner = pred.score1 > pred.score2 ? 1 : pred.score1 < pred.score2 ? 2 : 0
+      const simWinner = simScore1 > simScore2 ? 1 : simScore1 < simScore2 ? 2 : 0
+      if (predWinner === simWinner) return 1
+      return 0
+    }
+
+    const podiumCounts = new Map<string, [number, number, number]>(
+      rankedList.map(m => [m.userId, [0, 0, 0]])
+    )
+
+    const hasOdds = remainingGames.some(g => g.prob1 !== null)
+
+    if (remainingGames.length > 0) {
+      for (let sim = 0; sim < SIMULATIONS; sim++) {
+        const simPointsGained = new Map<string, number>()
+        const simExactGained = new Map<string, number>()
+
+        for (const game of remainingGames) {
+          const p1 = game.prob1 ?? 0.38
+          const px = game.probX ?? 0.27
+          const [ss1, ss2] = simulateGame(p1, px)
+
+          for (const member of rankedList) {
+            const pred = member.predByGameId.get(game.id)
+            // For games not started and no prediction: simulate random prediction tendency
+            // (conservative: 0 pts — they may or may not predict before the game)
+            const pts = scoreForPrediction(pred, ss1, ss2)
+            simPointsGained.set(member.userId, (simPointsGained.get(member.userId) ?? 0) + pts)
+            if (pts === 3) {
+              simExactGained.set(member.userId, (simExactGained.get(member.userId) ?? 0) + 1)
+            }
+          }
+        }
+
+        const simRanked = [...rankedList]
+          .map(m => ({
+            userId: m.userId,
+            total: m.currentPoints + (simPointsGained.get(m.userId) ?? 0),
+            exact: m.exactScores + (simExactGained.get(m.userId) ?? 0),
+          }))
+          .sort((a, b) => b.total !== a.total ? b.total - a.total : b.exact - a.exact)
+
+        simRanked.forEach((entry, idx) => {
+          if (idx < 3) {
+            const counts = podiumCounts.get(entry.userId)!
+            counts[idx]++
+          }
+        })
+      }
+    }
+
+    const resultsWithPodium = results.map((member) => {
+      const counts = podiumCounts.get(member.userId) ?? [0, 0, 0]
+      return {
+        ...member,
+        podiumOdds: {
+          first: Math.round((counts[0] / SIMULATIONS) * 1000) / 10,
+          second: Math.round((counts[1] / SIMULATIONS) * 1000) / 10,
+          third: Math.round((counts[2] / SIMULATIONS) * 1000) / 10,
+          top3: Math.round(((counts[0] + counts[1] + counts[2]) / SIMULATIONS) * 1000) / 10,
+        },
+      }
+    })
+
+    return {
+      phase: resolvedPhase,
+      remainingGamesCount: remainingGames.length,
+      hasOdds,
+      members: resultsWithPodium,
+    }
   })
 }

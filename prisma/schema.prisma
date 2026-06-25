@@ -57,6 +57,9 @@ model Game {
   score1      Int?
   score2      Int?
   resultFetched Boolean   @default(false) @map("result_fetched")
+  prob1       Float?       @map("prob1")
+  probX       Float?       @map("prob_x")
+  prob2       Float?       @map("prob2")
   updatedAt   DateTime     @updatedAt @map("updated_at")
   predictions Prediction[]
 
