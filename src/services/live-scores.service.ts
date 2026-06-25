@@ -4,7 +4,23 @@ import { recalculatePoints } from './scoring.service'
 interface EspnCompetitor {
   homeAway: 'home' | 'away'
   score: string
-  team: { displayName: string }
+  team: { displayName: string; abbreviation: string }
+}
+
+// Abreviações FIFA — espelho do TEAM_ABBR do frontend para match em jogos simultâneos
+const TEAM_ABBR: Record<string, string> = {
+  'México': 'MEX', 'África do Sul': 'RSA', 'Coreia do Sul': 'KOR', 'Tchéquia': 'CZE',
+  'Canadá': 'CAN', 'Bósnia e Herzegovina': 'BIH', 'Estados Unidos': 'USA', 'Paraguai': 'PAR',
+  'Catar': 'QAT', 'Suíça': 'SUI', 'Brasil': 'BRA', 'Marrocos': 'MAR',
+  'Haiti': 'HAI', 'Escócia': 'SCO', 'Austrália': 'AUS', 'Turquia': 'TUR',
+  'Alemanha': 'GER', 'Curaçao': 'CUW', 'Holanda': 'NED', 'Japão': 'JPN',
+  'Costa do Marfim': 'CIV', 'Equador': 'ECU', 'Suécia': 'SWE', 'Tunísia': 'TUN',
+  'Espanha': 'ESP', 'Cabo Verde': 'CPV', 'Bélgica': 'BEL', 'Egito': 'EGY',
+  'Arábia Saudita': 'KSA', 'Uruguai': 'URU', 'Irã': 'IRN', 'Nova Zelândia': 'NZL',
+  'França': 'FRA', 'Senegal': 'SEN', 'Iraque': 'IRQ', 'Noruega': 'NOR',
+  'Argentina': 'ARG', 'Argélia': 'ALG', 'Áustria': 'AUT', 'Jordânia': 'JOR',
+  'Portugal': 'POR', 'RD Congo': 'COD', 'Inglaterra': 'ENG', 'Croácia': 'CRO',
+  'Gana': 'GHA', 'Panamá': 'PAN', 'Uzbequistão': 'UZB', 'Colômbia': 'COL',
 }
 
 interface EspnCompetition {
@@ -77,19 +93,32 @@ export async function syncLiveResults(prisma: PrismaClient): Promise<LiveScore[]
     await Promise.all([...espnDateKeys].map(fetchFromEspnForDate))
   ).flat()
 
-  // Indexa pelo minuto UTC do início — bate exato com matchDate do banco
-  const espnByMinute = new Map(
-    allCompetitions
-      .filter(c => c.status.type.state !== 'pre')
-      .map(c => [toMinuteKey(c.date), c])
-  )
+  // Indexa pelo minuto UTC — guarda array para suportar jogos simultâneos
+  const espnByMinute = new Map<string, EspnCompetition[]>()
+  for (const c of allCompetitions) {
+    if (c.status.type.state === 'pre') continue
+    const key = toMinuteKey(c.date)
+    const bucket = espnByMinute.get(key)
+    if (bucket) bucket.push(c)
+    else espnByMinute.set(key, [c])
+  }
 
   const liveScores: LiveScore[] = []
 
   for (const game of pendingGames) {
     const key = toMinuteKey(game.matchDate.toISOString())
-    const competition = espnByMinute.get(key)
-    if (!competition) continue
+    const bucket = espnByMinute.get(key)
+    if (!bucket) continue
+
+    const abbr1 = TEAM_ABBR[game.team1]
+    const abbr2 = TEAM_ABBR[game.team2]
+
+    // Se há mais de uma competição no mesmo horário, filtra pela abreviação dos times
+    const competition = bucket.length === 1
+      ? bucket[0]
+      : bucket.find(c =>
+          c.competitors.some(p => p.team.abbreviation === abbr1 || p.team.abbreviation === abbr2)
+        ) ?? bucket[0]
 
     const home = competition.competitors.find(c => c.homeAway === 'home')
     const away = competition.competitors.find(c => c.homeAway === 'away')
