@@ -311,6 +311,9 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/:code/ranking-stats', { preHandler: requireAuth }, async (request, reply) => {
     const { code } = request.params as { code: string }
+    const { phase } = request.query as { phase?: string }
+    const resolvedPhase = phase === 'knockout' ? 'knockout' : 'grupos'
+
     const pool = await fastify.prisma.pool.findUnique({ where: { code: code.toUpperCase() } })
     if (!pool) return reply.status(404).send({ error: 'Bolão não encontrado' })
 
@@ -321,8 +324,12 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
       include: { user: true },
     })
 
+    const phaseFilter = resolvedPhase === 'grupos'
+      ? { number: { lte: 72 } }
+      : { number: { gte: 73 } }
+
     const remainingGames = await fastify.prisma.game.findMany({
-      where: { score1: null },
+      where: { score1: null, ...phaseFilter },
       orderBy: { number: 'asc' },
     })
 
@@ -412,6 +419,6 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
       }
     })
 
-    return { remainingGamesCount: remainingGames.length, members: results }
+    return { phase: resolvedPhase, remainingGamesCount: remainingGames.length, members: results }
   })
 }
