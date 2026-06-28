@@ -121,6 +121,7 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/:code/ranking', { preHandler: requireAuth }, async (request, reply) => {
     const { code } = request.params as { code: string }
+    const { phase } = request.query as { phase?: string }
     const pool = await fastify.prisma.pool.findUnique({ where: { code: code.toUpperCase() } })
     if (!pool) return reply.status(404).send({ error: 'Bolão não encontrado' })
 
@@ -131,10 +132,16 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
 
     const rankings = await Promise.all(
       members.map(async (member) => {
-        const predictions = await fastify.prisma.prediction.findMany({
+        const allPredictions = await fastify.prisma.prediction.findMany({
           where: { userId: member.userId, poolId: pool.id, isLocked: true },
           include: { game: true },
         })
+
+        const predictions = phase === 'grupos'
+          ? allPredictions.filter(p => p.game.number <= 72)
+          : phase === 'matamata'
+            ? allPredictions.filter(p => p.game.number >= 73)
+            : allPredictions
 
         const totalPoints = predictions.reduce((sum, p) => sum + (p.points ?? 0), 0)
         const exactScores = predictions.filter(p => p.points === 3).length
