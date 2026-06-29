@@ -103,12 +103,8 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
       })
     }
 
-    await fastify.prisma.prediction.deleteMany({
-      where: { userId: user.id, poolId, game: { matchDate: { lte: now }, ...gameFilter } },
-    })
-
     await fastify.prisma.prediction.updateMany({
-      where: { userId: user.id, poolId, game: gameFilter },
+      where: { userId: user.id, poolId, game: { matchDate: { gt: now }, ...gameFilter } },
       data: { isLocked: true },
     })
 
@@ -177,11 +173,14 @@ export const predictionRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(403).send({ error: 'Confirme seus palpites antes de ver os de outros participantes' })
     }
 
-    const allPredictions = await fastify.prisma.prediction.findMany({
-      where: { userId, poolId },
-      select: { isLocked: true },
+    const now = new Date()
+    const hasAnyLocked = await fastify.prisma.prediction.count({
+      where: { userId, poolId, isLocked: true },
     })
-    if (!allPredictions.length || allPredictions.some(p => !p.isLocked)) {
+    const unlockedFutureCount = await fastify.prisma.prediction.count({
+      where: { userId, poolId, isLocked: false, game: { matchDate: { gt: now } } },
+    })
+    if (!hasAnyLocked || unlockedFutureCount > 0) {
       return reply.status(403).send({ error: 'Palpites ainda não confirmados' })
     }
 

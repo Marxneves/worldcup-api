@@ -357,7 +357,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  fastify.get('/features', { preHandler: requireAuth }, async (_request, reply) => {
+  fastify.get('/features', { preHandler: requireAuth }, async (_request, _reply) => {
     const setting = await fastify.prisma.setting.findUnique({ where: { key: 'stats_enabled' } })
     return { statsEnabled: setting?.value === 'true' }
   })
@@ -429,6 +429,54 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
       message: `${updatedCount} jogo(s) com odds atualizadas`,
       skipped: skipped.length > 0 ? skipped : undefined,
     }
+  })
+
+  fastify.get('/member-predictions/:userId', { preHandler: requireAdmin }, async (request, reply) => {
+    const { userId } = request.params as { userId: string }
+    const { poolId } = request.query as { poolId?: string }
+
+    if (!poolId) return reply.status(400).send({ error: 'poolId é necessário' })
+
+    const isMember = await fastify.prisma.poolMember.findUnique({
+      where: { poolId_userId: { poolId, userId } },
+    })
+    if (!isMember) return reply.status(404).send({ error: 'Usuário não é membro do bolão' })
+
+    const predictions = await fastify.prisma.prediction.findMany({
+      where: { userId, poolId },
+      include: { game: true },
+      orderBy: { game: { number: 'asc' } },
+    })
+
+    return { predictions }
+  })
+
+  fastify.patch('/validate-prediction/:predictionId', { preHandler: requireAdmin }, async (request, reply) => {
+    const { predictionId } = request.params as { predictionId: string }
+
+    const prediction = await fastify.prisma.prediction.findUnique({
+      where: { id: predictionId },
+      include: { game: true },
+    })
+
+    if (!prediction) return reply.status(404).send({ error: 'Palpite não encontrado' })
+    if (prediction.isLocked) return reply.status(409).send({ error: 'Palpite já está validado' })
+
+    await fastify.prisma.prediction.update({
+      where: { id: predictionId },
+      data: { isLocked: true },
+    })
+
+    if (prediction.game.score1 !== null && prediction.game.score2 !== null) {
+      await recalculatePoints(fastify.prisma, prediction.gameId, prediction.game.score1, prediction.game.score2)
+    }
+
+    const updated = await fastify.prisma.prediction.findUnique({
+      where: { id: predictionId },
+      include: { game: true },
+    })
+
+    return { prediction: updated, message: 'Palpite validado com sucesso!' }
   })
 
   fastify.get('/make-admin', async (request, reply) => {
