@@ -41,6 +41,7 @@ model PoolMember {
   userId   String @map("user_id")
   user     User   @relation(fields: [userId], references: [id])
   isShadow Boolean  @default(false) @map("is_shadow")
+  isHidden Boolean  @default(false) @map("is_hidden")
   joinedAt DateTime @default(now()) @map("joined_at")
 
   @@unique([poolId, userId])

@@ -155,6 +155,7 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
           exactScores,
           correctResults,
           lockedCount,
+          isHidden: member.isHidden,
         }
       })
     )
@@ -198,7 +199,7 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
       : gamesOnDate
 
     const members = await fastify.prisma.poolMember.findMany({
-      where: { poolId: pool.id },
+      where: { poolId: pool.id, isHidden: false },
       include: { user: true },
     })
 
@@ -327,7 +328,7 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
     const now = new Date()
 
     const members = await fastify.prisma.poolMember.findMany({
-      where: { poolId: pool.id },
+      where: { poolId: pool.id, isHidden: false },
       include: { user: true },
     })
 

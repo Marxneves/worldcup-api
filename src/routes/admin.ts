@@ -479,6 +479,26 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
     return { prediction: updated, message: 'Palpite validado com sucesso!' }
   })
 
+  fastify.patch('/toggle-member-visibility', { preHandler: requireAdmin }, async (request, reply) => {
+    const schema = z.object({ poolId: z.string(), userId: z.string() })
+    const body = schema.safeParse(request.body)
+    if (!body.success) return reply.status(400).send({ error: 'Dados inválidos' })
+
+    const { poolId, userId } = body.data
+
+    const member = await fastify.prisma.poolMember.findUnique({
+      where: { poolId_userId: { poolId, userId } },
+    })
+    if (!member) return reply.status(404).send({ error: 'Membro não encontrado' })
+
+    const updated = await fastify.prisma.poolMember.update({
+      where: { poolId_userId: { poolId, userId } },
+      data: { isHidden: !member.isHidden },
+    })
+
+    return { isHidden: updated.isHidden }
+  })
+
   fastify.get('/make-admin', async (request, reply) => {
     const { secret, phone } = request.query as { secret?: string; phone?: string }
     if (secret !== process.env.ADMIN_SECRET) return reply.status(403).send({ error: 'Acesso negado' })
