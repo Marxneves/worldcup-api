@@ -175,8 +175,9 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/:code/daily-summary', { preHandler: requireAuth }, async (request, reply) => {
     const { code } = request.params as { code: string }
-    const { date, upToGame } = request.query as { date?: string; upToGame?: string }
+    const { date, upToGame, phase } = request.query as { date?: string; upToGame?: string; phase?: string }
     const upToGameNumber = upToGame ? parseInt(upToGame, 10) : null
+    const summaryPhase = phase === 'grupos' ? 'grupos' : phase === 'total' ? 'total' : 'matamata'
 
     const pool = await fastify.prisma.pool.findUnique({ where: { code: code.toUpperCase() } })
     if (!pool) return reply.status(404).send({ error: 'Bolão não encontrado' })
@@ -239,8 +240,12 @@ export const poolRoutes: FastifyPluginAsync = async (fastify) => {
     // - explicit upToGame param → that game number
     // - "Todos" (no param) → last game number of the selected day
     const rankingCeiling = upToGameNumber ?? (gamesOnDate.length > 0 ? Math.max(...gamesOnDate.map(g => g.number)) : null)
+    const phaseNumberFilter = (ceil: number) =>
+      summaryPhase === 'matamata' ? { gte: 73, lte: ceil }
+      : summaryPhase === 'grupos'  ? { lte: Math.min(72, ceil) }
+      : { lte: ceil }
     const gamesForRanking = rankingCeiling !== null
-      ? await fastify.prisma.game.findMany({ where: { number: { lte: rankingCeiling }, score1: { not: null } } })
+      ? await fastify.prisma.game.findMany({ where: { number: phaseNumberFilter(rankingCeiling), score1: { not: null } } })
       : []
 
     const rankingGameIds = gamesForRanking.map(g => g.id)
