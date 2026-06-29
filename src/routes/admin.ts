@@ -226,6 +226,13 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
       where: { poolId_userId: { poolId: targetPoolId, userId } },
     })
     if (alreadyInTarget) {
+      if (alreadyInTarget.isShadow && !asShadow) {
+        await fastify.prisma.poolMember.update({
+          where: { poolId_userId: { poolId: targetPoolId, userId } },
+          data: { isShadow: false },
+        })
+        return { message: 'Membro promovido de cópia oculta para membro real', copiedPredictions: 0 }
+      }
       return reply.status(409).send({ error: 'Usuário já faz parte do bolão destino' })
     }
 
@@ -275,6 +282,28 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
     await fastify.prisma.poolMember.delete({ where: { poolId_userId: { poolId, userId } } })
 
     return { message: `${membership.user.name} removido do bolão` }
+  })
+
+  fastify.patch('/promote-member', { preHandler: requireAdmin }, async (request, reply) => {
+    const schema = z.object({ poolId: z.string(), userId: z.string() })
+    const body = schema.safeParse(request.body)
+    if (!body.success) return reply.status(400).send({ error: 'Dados inválidos' })
+
+    const { poolId, userId } = body.data
+
+    const member = await fastify.prisma.poolMember.findUnique({
+      where: { poolId_userId: { poolId, userId } },
+      include: { user: true },
+    })
+    if (!member) return reply.status(404).send({ error: 'Membro não encontrado neste bolão' })
+    if (!member.isShadow) return reply.status(409).send({ error: 'Membro já é real' })
+
+    await fastify.prisma.poolMember.update({
+      where: { poolId_userId: { poolId, userId } },
+      data: { isShadow: false },
+    })
+
+    return { message: `${member.user.name} promovido para membro real` }
   })
 
   fastify.patch('/games/:number/match-date', { preHandler: requireAdmin }, async (request, reply) => {
