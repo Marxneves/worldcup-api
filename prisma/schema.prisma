@@ -57,6 +57,8 @@ model Game {
   team2       String
   score1      Int?
   score2      Int?
+  penalty1    Int?
+  penalty2    Int?
   resultFetched Boolean   @default(false) @map("result_fetched")
   prob1       Float?       @map("prob1")
   probX       Float?       @map("prob_x")

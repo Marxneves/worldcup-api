@@ -5,6 +5,7 @@ import { advanceBracket } from './bracket.service'
 interface EspnCompetitor {
   homeAway: 'home' | 'away'
   score: string
+  shootoutScore?: number
   team: { displayName: string; abbreviation: string }
 }
 
@@ -65,9 +66,25 @@ async function fetchFromEspnForDate(dateKey: string): Promise<EspnCompetition[]>
   return data.events.map(e => e.competitions[0])
 }
 
-// Normaliza para "YYYY-MM-DDTHH:MM" para comparação (ignora segundos e offset)
-function toMinuteKey(dateStr: string): string {
-  return new Date(dateStr).toISOString().slice(0, 16)
+// Duração máxima considerada "ainda em andamento" a partir do chute inicial real.
+// Jogos do mata-mata podem ir a prorrogação + pênaltis (90 + 15 + 30 + intervalo + pênaltis
+// facilmente passa de 2h) — por isso têm uma janela maior que os da fase de grupos.
+const GROUP_STAGE_MAX_DURATION_MS = 2.5 * 60 * 60 * 1000
+const KNOCKOUT_MAX_DURATION_MS = 4 * 60 * 60 * 1000
+
+// Localiza a competição da ESPN correspondente ao jogo pelas seleções envolvidas,
+// não pelo horário agendado — um atraso de início (chuva, transmissão etc.) faz a ESPN
+// reportar um horário de início diferente do `matchDate` gravado no banco, e casar por
+// minuto exato faria o jogo nunca ser encontrado.
+function findEspnCompetition(game: { team1: string; team2: string }, competitions: EspnCompetition[]): EspnCompetition | undefined {
+  const abbr1 = TEAM_ABBR[game.team1]
+  const abbr2 = TEAM_ABBR[game.team2]
+  if (!abbr1 || !abbr2) return undefined
+
+  return competitions.find(c => {
+    const abbrs = c.competitors.map(p => p.team.abbreviation)
+    return abbrs.includes(abbr1) && abbrs.includes(abbr2)
+  })
 }
 
 export async function syncLiveResults(prisma: PrismaClient): Promise<LiveScore[]> {
@@ -76,7 +93,6 @@ export async function syncLiveResults(prisma: PrismaClient): Promise<LiveScore[]
   }
 
   const now = new Date()
-  const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000)
 
   const pendingGames = await prisma.game.findMany({
     where: { matchDate: { lte: now }, score1: null },
@@ -92,34 +108,13 @@ export async function syncLiveResults(prisma: PrismaClient): Promise<LiveScore[]
   const espnDateKeys = new Set(pendingGames.flatMap(g => toEspnDateKeys(g.matchDate)))
   const allCompetitions = (
     await Promise.all([...espnDateKeys].map(fetchFromEspnForDate))
-  ).flat()
-
-  // Indexa pelo minuto UTC — guarda array para suportar jogos simultâneos
-  const espnByMinute = new Map<string, EspnCompetition[]>()
-  for (const c of allCompetitions) {
-    if (c.status.type.state === 'pre') continue
-    const key = toMinuteKey(c.date)
-    const bucket = espnByMinute.get(key)
-    if (bucket) bucket.push(c)
-    else espnByMinute.set(key, [c])
-  }
+  ).flat().filter(c => c.status.type.state !== 'pre')
 
   const liveScores: LiveScore[] = []
 
   for (const game of pendingGames) {
-    const key = toMinuteKey(game.matchDate.toISOString())
-    const bucket = espnByMinute.get(key)
-    if (!bucket) continue
-
-    const abbr1 = TEAM_ABBR[game.team1]
-    const abbr2 = TEAM_ABBR[game.team2]
-
-    // Se há mais de uma competição no mesmo horário, filtra pela abreviação dos times
-    const competition = bucket.length === 1
-      ? bucket[0]
-      : bucket.find(c =>
-          c.competitors.some(p => p.team.abbreviation === abbr1 || p.team.abbreviation === abbr2)
-        ) ?? bucket[0]
+    const competition = findEspnCompetition(game, allCompetitions)
+    if (!competition) continue
 
     const home = competition.competitors.find(c => c.homeAway === 'home')
     const away = competition.competitors.find(c => c.homeAway === 'away')
@@ -132,22 +127,30 @@ export async function syncLiveResults(prisma: PrismaClient): Promise<LiveScore[]
     const isFinished = competition.status.type.state === 'post'
 
     if (isFinished) {
+      const penalty1 = home.shootoutScore ?? null
+      const penalty2 = away.shootoutScore ?? null
+
       await prisma.game.update({
         where: { id: game.id },
-        data: { score1, score2, resultFetched: true },
+        data: { score1, score2, penalty1, penalty2, resultFetched: true },
       })
       await recalculatePoints(prisma, game.id, score1, score2)
       if (game.number >= 73) {
-        await advanceBracket(prisma, game.number, game.team1, game.team2, score1, score2)
+        await advanceBracket(prisma, game.number, game.team1, game.team2, score1, score2, penalty1, penalty2)
       }
-    } else if (game.matchDate >= twoHoursAgo) {
-      liveScores.push({
-        gameNumber: game.number,
-        score1,
-        score2,
-        timeElapsed: competition.status.displayClock,
-      })
+      continue
     }
+
+    const actualKickoff = new Date(competition.date)
+    const maxDuration = game.number >= 73 ? KNOCKOUT_MAX_DURATION_MS : GROUP_STAGE_MAX_DURATION_MS
+    if (now.getTime() - actualKickoff.getTime() > maxDuration) continue
+
+    liveScores.push({
+      gameNumber: game.number,
+      score1,
+      score2,
+      timeElapsed: competition.status.displayClock,
+    })
   }
 
   espnCache = { liveScores, expiresAt: Date.now() + 60_000 }

@@ -30,6 +30,23 @@ const BRACKET_MAP: BracketRule[] = [
   { from: 101, to: 103, field: 'team1', useLoser: true }, { from: 102, to: 103, field: 'team2', useLoser: true },
 ]
 
+// Empate no tempo normal só é possível no mata-mata via pênaltis — sem os placares
+// de pênaltis não há como saber quem venceu, então não avançamos ninguém.
+export function determineKnockoutWinner(
+  team1: string,
+  team2: string,
+  score1: number,
+  score2: number,
+  penalty1: number | null,
+  penalty2: number | null,
+): { winner: string; loser: string } | null {
+  if (score1 !== score2) {
+    return score1 > score2 ? { winner: team1, loser: team2 } : { winner: team2, loser: team1 }
+  }
+  if (penalty1 === null || penalty2 === null || penalty1 === penalty2) return null
+  return penalty1 > penalty2 ? { winner: team1, loser: team2 } : { winner: team2, loser: team1 }
+}
+
 export async function advanceBracket(
   prisma: PrismaClient,
   gameNumber: number,
@@ -37,12 +54,15 @@ export async function advanceBracket(
   team2: string,
   score1: number,
   score2: number,
+  penalty1: number | null = null,
+  penalty2: number | null = null,
 ): Promise<void> {
   const rules = BRACKET_MAP.filter(r => r.from === gameNumber)
   if (rules.length === 0) return
 
-  const winner = score1 > score2 ? team1 : team2
-  const loser = score1 > score2 ? team2 : team1
+  const result = determineKnockoutWinner(team1, team2, score1, score2, penalty1, penalty2)
+  if (!result) return
+  const { winner, loser } = result
 
   for (const rule of rules) {
     const advancing = rule.useLoser ? loser : winner
@@ -56,6 +76,40 @@ export async function advanceBracket(
       data: { [rule.field]: advancing },
     })
   }
+}
+
+// Reprocessa o bracket inteiro a partir do estado atual do banco — usado como
+// ferramenta de correção manual quando um avanço não aconteceu automaticamente.
+export async function syncBracket(prisma: PrismaClient): Promise<{ updatedCount: number; log: string[] }> {
+  const completed = await prisma.game.findMany({
+    where: { number: { gte: 73 }, score1: { not: null } },
+  })
+  const gameByNumber = new Map(completed.map(g => [g.number, g]))
+
+  let updatedCount = 0
+  const log: string[] = []
+
+  for (const rule of BRACKET_MAP) {
+    const source = gameByNumber.get(rule.from)
+    if (!source || source.score1 === null || source.score2 === null) continue
+
+    const result = determineKnockoutWinner(source.team1, source.team2, source.score1, source.score2, source.penalty1, source.penalty2)
+    if (!result) continue
+    const advancing = rule.useLoser ? result.loser : result.winner
+
+    const target = await prisma.game.findUnique({ where: { number: rule.to } })
+    if (!target || target.score1 !== null) continue
+    if (target[rule.field] === advancing) continue
+
+    await prisma.game.update({
+      where: { id: target.id },
+      data: { [rule.field]: advancing },
+    })
+    log.push(`J${rule.to}.${rule.field} = ${advancing}`)
+    updatedCount++
+  }
+
+  return { updatedCount, log }
 }
 
 interface GroupStanding {
