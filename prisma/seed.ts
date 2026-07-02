@@ -125,7 +125,7 @@ async function main() {
   for (const game of games) {
     await prisma.game.upsert({
       where: { number: game.number },
-      update: { matchDate: new Date(game.matchDate), team1: game.team1, team2: game.team2 },
+      update: { matchDate: new Date(game.matchDate) },
       create: {
         number: game.number,
         group: game.group,
